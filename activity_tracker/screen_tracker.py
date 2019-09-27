@@ -3,9 +3,7 @@ import mss.tools
 import cv2
 import numpy as np
 
-def to_cv_img(img):
-    print(img)
-    return np.float32(img)
+prev_img = None
 
 with mss.mss() as sct:
     monitor = sct.monitors[1]
@@ -17,6 +15,6 @@ with mss.mss() as sct:
     bbox = (left, top, right, lower)
 
     while True:
-        im = sct.grab(bbox)  # type: ignore
-        cv2.imshow("Screen", np.array(im))
+        img = np.array(sct.grab(bbox))
+        cv2.imshow("Screen", img)
         cv2.waitKey(10)
