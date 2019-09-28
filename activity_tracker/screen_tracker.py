@@ -27,7 +27,7 @@ class PoseEstimation:
             frame_count = 0
             while True:
                 input_image, display_image, output_scale = posenet.read_cap(
-                    cap, scale_factor=self.SCALE_FACTOR, output_stride=self.output_stride)
+                    cap, scale_factor=self.SCALE_FACTOR, output_stride=self.output_stride, )
 
                 heatmaps_result, offsets_result, displacement_fwd_result, displacement_bwd_result = sess.run(
                     self.model_outputs,
@@ -44,13 +44,13 @@ class PoseEstimation:
                     min_pose_score=0.15)
 
                 keypoint_coords *= output_scale
-                overlay_image = posenet.draw_skel_and_kp(
+                overlay_image = posenet.draw_skel_and_kp_single(
                     display_image, pose_scores, keypoint_scores, keypoint_coords,
                     min_pose_score=0.15, min_part_score=0.1)
 
                 frame_count += 1
                 data = {
-                # "coords": keypoint_coords,
+                "coords": keypoint_coords,
                  "image": overlay_image, 
                  "frame_id": frame_count}
                 self.context[self.__class__.__name__] = data
@@ -89,6 +89,17 @@ class Application:
         self.screen_tracker = ScreenTracker(self.context)
         self.pose_tracker = PoseEstimation(self.context)
 
+    def _show_posenet(self):
+        if self.context.get("PoseEstimation"):
+            img = self.context["PoseEstimation"]["image"]
+            cv2.imshow('posenet', img)
+            cv2.waitKey(1)
+
+    def _get_poses(self):
+        if self.context.get("PoseEstimation"):
+            return self.context["PoseEstimation"]["coords"]
+        return []
+
     def run(self):
         self.screen_thread = threading.Thread(name='screen_thread',
                 target=self.screen_tracker.run)
@@ -101,14 +112,10 @@ class Application:
 
             # self.screen_thread.join()
             # self.pose_thread.join()
+            self._show_posenet()
+            if len(self._get_poses()) > 0:
+                print(self._get_poses()[0])
 
-            if self.context.get("PoseEstimation"):
-                # print(len(self.context["ScreenTracker"]), self.context["PoseEstimation"])
-                img = self.context["PoseEstimation"]["image"]
-                cv2.imshow('posenet', img)
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                break
-                print(img.shape)
 
 
     def __exit__(self):
