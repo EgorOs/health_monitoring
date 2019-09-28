@@ -4,19 +4,69 @@ import cv2
 import numpy as np
 import os
 from pathlib import Path
+import tensorflow as tf
+import posenet
+import threading
+from time import time
 
 class PoseEstimation:
-    
+    MODEL = 101
+    SCALE_FACTOR = 0.7125
+    def __init__(self, context, camera=(1366, 768)):    
+        self.context = context
+        self.camera = camera
+
+    def run(self):
+        with tf.Session() as sess:
+            self.model_cfg, self.model_outputs = posenet.load_model(self.MODEL, sess)
+            self.output_stride = self.model_cfg['output_stride']
+            cap = cv2.VideoCapture(0)
+            cap.set(3, self.camera[0])
+            cap.set(4, self.camera[1])
+            # start = time.time()
+            frame_count = 0
+            while True:
+                input_image, display_image, output_scale = posenet.read_cap(
+                    cap, scale_factor=self.SCALE_FACTOR, output_stride=self.output_stride)
+
+                heatmaps_result, offsets_result, displacement_fwd_result, displacement_bwd_result = sess.run(
+                    self.model_outputs,
+                    feed_dict={'image:0': input_image}
+                )
+
+                pose_scores, keypoint_scores, keypoint_coords = posenet.decode_multi.decode_multiple_poses(
+                    heatmaps_result.squeeze(axis=0),
+                    offsets_result.squeeze(axis=0),
+                    displacement_fwd_result.squeeze(axis=0),
+                    displacement_bwd_result.squeeze(axis=0),
+                    output_stride=self.output_stride,
+                    max_pose_detections=10,
+                    min_pose_score=0.15)
+
+                keypoint_coords *= output_scale
+
+                # TODO this isn't particularly fast, use GL for drawing and display someday...
+                # overlay_image = posenet.draw_skel_and_kp(
+                #     display_image, pose_scores, keypoint_scores, keypoint_coords,
+                #     min_pose_score=0.15, min_part_score=0.1)
+
+                # cv2.imshow('posenet', overlay_image)
+                frame_count += 1
+                data = {
+                # "coords": keypoint_coords,
+                 # "image": input_image, 
+                 "frame_id": frame_count}
+                self.context[self.__class__.__name__] = data
+
 
 class ScreenTracker:
 
-    def __init__(self):
+    def __init__(self, context):
+        self.context = context
+        self.context[self.__class__.__name__] = []
         self.video_buffer = []
         self.__init_screen()
         file = Path(os.getcwd())/'outpy.avi'
-        # self.video = cv2.VideoWriter(file, cv2.VideoWriter_fourcc(*'XVID'), 25, 
-        #    self.img_size[0],self.img_size[1])
-        self.video = cv2.VideoWriter(file,1, 10, self.img_size)
 
     def __init_screen(self):
         with mss.mss() as sct:
@@ -28,35 +78,46 @@ class ScreenTracker:
             self.img_size = (monitor["width"], monitor["height"])
             self.bbox = (left, top, right, lower)
 
-    def run(self, record=False):
+    def run(self):
         with mss.mss() as sct:
             while True:
                 img = np.array(sct.grab(self.bbox))
                 # cv2.imshow("Screen", img)
                 # cv2.waitKey(10)
-                if record:
-                    self.video_buffer.append(img)
-                    self.video.write(cv2.resize(img, self.img_size))
-                    print(self.img_size)
-                if len(self.video_buffer) > 200:
-                    self.video.release()
-                    break
+                self.context[self.__class__.__name__].append(2)
 
+class Application:
+    def __init__(self):
+        self.context = dict()
+        self.screen_tracker = ScreenTracker(self.context)
+        self.pose_tracker = PoseEstimation(self.context)
 
-    # def __exit__
-    # def save_video(self):
-    #     out = cv2.VideoWriter('project.avi',cv2.VideoWriter_fourcc(*'DIVX') , 
-    #         15, self.img_size)
- 
-    #     for i in range(len(self.video_buffer)):
-    #         out.write(self.video_buffer[i])
-    #     out.release()
+    def run(self):
+        self.screen_thread = threading.Thread(name='screen_thread',
+                target=self.screen_tracker.run)
+        self.pose_thread = threading.Thread(name='pose_thread',
+                target=self.pose_tracker.run)
+        self.screen_thread.start()
+        self.pose_thread.start()
+        while True:
+            start_time = time()
+            while time() - start_time < 0.05:
+                # print(time() - start_time)
+
+            # self.screen_thread.join()
+            # self.pose_thread.join()
+
+                if self.context.get("PoseEstimation"):
+                    print(len(self.context["ScreenTracker"]), self.context["PoseEstimation"])
+                    # if self.context["PoseEstimation"].get("data"):
+                    #     cv2.imshow("1", self.context["PoseEstimation"].get("data")["image"])
+                    #     cv2.waitKey(10)
+
+    def __exit__(self):
+        self.screen_thread.join()
+        self.pose_thread.join()
 
 
 if __name__ == "__main__":
-    screen_tracker = ScreenTracker()
-    try:
-        screen_tracker.run(record=True)
-    except KeyboardInterrupt:
-        screen_tracker.video.release()
-        exit()
+    app = Application()
+    app.run()
