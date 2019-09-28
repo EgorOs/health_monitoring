@@ -44,7 +44,7 @@ class PoseEstimation:
                     min_pose_score=0.15)
 
                 keypoint_coords *= output_scale
-                overlay_image = posenet.draw_skel_and_kp_single(
+                overlay_image, body_data = posenet.analyze_pose(
                     display_image, pose_scores, keypoint_scores, keypoint_coords,
                     min_pose_score=0.15, min_part_score=0.1)
 
@@ -63,7 +63,6 @@ class ScreenTracker:
         self.context[self.__class__.__name__] = []
         self.video_buffer = []
         self.__init_screen()
-        file = Path(os.getcwd())/'outpy.avi'
 
     def __init_screen(self):
         with mss.mss() as sct:
@@ -114,7 +113,8 @@ class Application:
             # self.pose_thread.join()
             self._show_posenet()
             if len(self._get_poses()) > 0:
-                print(self._get_poses()[0])
+                # print(self._get_poses()[0])
+                pass
 
 
 

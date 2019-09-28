@@ -3,6 +3,23 @@ import numpy as np
 
 import posenet.constants
 
+PT_2_NAME = {
+    0: "Nose",
+    1: "Left Eye",
+    2: "Right Eye",
+    3: "Left Ear",
+    4: "Right Ear",
+}
+
+CHEST = "chest"
+LEFT_HAND = "left_hand"
+RIGHT_HAND = "right_hand"
+BODY_CENTER = "center"
+
+JOINT_2_NAME = {
+    
+}
+
 
 def valid_resolution(width, height, output_stride=16):
     target_width = (int(width) // output_stride) * output_stride + 1
@@ -100,9 +117,41 @@ def draw_skel_and_kp(
     out_img = cv2.polylines(out_img, adjacent_keypoints, isClosed=False, color=(255, 255, 0))
     return out_img
 
-def draw_skel_and_kp_single(
+def adj_to_pts(pair):
+    pt1 = cv2.KeyPoint(pair[0][0], pair[0][1], 10)
+    pt2 = cv2.KeyPoint(pair[1][0], pair[1][1], 10)
+    return pt1, pt2
+
+def to_pt(coords, size=10):
+    return cv2.KeyPoint(coords[0], coords[1], 10)
+
+def __calc_similarity(pt1, pt2, axis):
+    return 1 - abs((pt1.pt[axis] - pt2.pt[axis]) / max(pt1.pt[axis], pt2.pt[axis]))
+
+def get_center(pair):
+    return abs(pair[0] + pair[1])//2
+
+def _identify_body_parts(adjacent_keypoints):
+    ideintified = dict()
+    for i, pair in enumerate(adjacent_keypoints):
+        pt1, pt2 = adj_to_pts(pair)
+        y_similarity = __calc_similarity(pt1, pt2, 1)
+        if y_similarity > 0.9:
+            ideintified[CHEST] = pair
+            break
+    return ideintified
+
+def resolve_pts(cv_keypoints):
+    res_pts = dict()
+    for i, pt in enumerate(cv_keypoints):
+        if i in range(len(PT_2_NAME)):
+            res_pts[PT_2_NAME[i]] = cv_keypoints[i].pt
+    return res_pts
+
+def analyze_pose(
         img, instance_scores, keypoint_scores, keypoint_coords,
         min_pose_score=0.5, min_part_score=0.5):
+    body_data = dict()
     out_img = img
     adjacent_keypoints = []
     cv_keypoints = []
@@ -124,4 +173,25 @@ def draw_skel_and_kp_single(
         out_img, cv_keypoints, outImage=np.array([]), color=(255, 255, 0),
         flags=cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
     out_img = cv2.polylines(out_img, adjacent_keypoints, isClosed=False, color=(255, 255, 0))
-    return out_img
+
+    if adjacent_keypoints:
+        pair = adjacent_keypoints[0]
+        id_parts = _identify_body_parts(adjacent_keypoints)
+        pt1, pt2 = adj_to_pts(pair)
+    else:
+        id_parts = dict()
+
+    body_data = {
+            "body_parts": id_parts,
+            "body_pts": resolve_pts(cv_keypoints),
+            BODY_CENTER: []
+    }
+    if id_parts:
+        if id_parts.get(CHEST).any():
+            center = get_center(id_parts[CHEST])
+            body_data[BODY_CENTER] = center
+            out_img = cv2.drawKeypoints(
+                out_img, (to_pt(center, size=30), ), outImage=out_img, color=(0, 0 , 255),
+                flags=cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
+    
+    return out_img, body_data
