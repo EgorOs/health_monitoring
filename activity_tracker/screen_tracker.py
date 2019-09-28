@@ -15,6 +15,63 @@ class PoseEstimation:
     def __init__(self, context, camera=(1366, 768)):    
         self.context = context
         self.camera = camera
+        self.user_init_iterations_left = 5
+        self.initialized = False
+        self.__neck_offset_lst = []
+        self.__spine_offset_lst = []
+        self.normal_spine_offset = None
+        self.normal_neck_offset = None
+
+    def user_initialization(self, body_data):
+        if len(body_data["center"]) > 0:
+            self.__neck_offset_lst.append(self._get_neck_offset(body_data))
+            self.__spine_offset_lst.append(body_data["center"][1])
+            self.user_init_iterations_left -= 1
+            print("Initialization %s iterations left" % self.user_init_iterations_left)
+
+        if self.user_init_iterations_left == 0:
+            print("Initialization is complete")
+            self.normal_spine_offset = sum(self.__spine_offset_lst)/len(self.__spine_offset_lst)
+            self.normal_neck_offset = sum(self.__neck_offset_lst)/len(self.__neck_offset_lst)
+            self.initialized = True
+
+    def _get_neck_offset(self, body_data):
+        nose_pose = body_data["body_pts"]["Nose"]
+        chest_center = body_data["center"]
+        neck_offset = chest_center[1] - nose_pose[1]
+        return neck_offset
+
+    def analyze_pose(self, body_data):
+        EYE_OPEN = 1
+        EYE_CLOSED = 0
+        SPINE_UNDEFINED = 0
+        SPINE_GOOD = 1
+        SPINE_BAD = -1
+        NECK_UNDEFINED = 0
+        NECK_GOOD = 1
+        NECK_BAD = -1
+        state = {
+            "spine": SPINE_UNDEFINED,
+            "neck": NECK_UNDEFINED,
+            "left_eye": EYE_OPEN,
+            "right_eye": EYE_OPEN,
+        }
+
+        if not self.initialized:
+            return state
+        
+        if len(body_data["center"]) > 0:
+            neck_offset = self._get_neck_offset(body_data)
+            if neck_offset < self.normal_neck_offset*0.8:
+                state["neck"] = NECK_BAD
+            else:
+                state["neck"] = NECK_GOOD
+            spine_offset = body_data["center"][1]
+            if spine_offset > self.normal_spine_offset*1.1:
+                state["spine"] = SPINE_BAD
+            else:
+                state["spine"] = SPINE_GOOD
+        return state
 
     def run(self):
         with tf.Session() as sess:
@@ -48,9 +105,14 @@ class PoseEstimation:
                     display_image, pose_scores, keypoint_scores, keypoint_coords,
                     min_pose_score=0.15, min_part_score=0.1)
 
+                if not self.initialized:
+                    self.user_initialization(body_data)
+
+                state = self.analyze_pose(body_data)
+                print(state)
                 frame_count += 1
                 data = {
-                "coords": keypoint_coords,
+                "state": state,
                  "image": overlay_image, 
                  "frame_id": frame_count}
                 self.context[self.__class__.__name__] = data
@@ -94,9 +156,9 @@ class Application:
             cv2.imshow('posenet', img)
             cv2.waitKey(1)
 
-    def _get_poses(self):
+    def _get_state(self):
         if self.context.get("PoseEstimation"):
-            return self.context["PoseEstimation"]["coords"]
+            return self.context["PoseEstimation"]["state"]
         return []
 
     def run(self):
@@ -112,11 +174,9 @@ class Application:
             # self.screen_thread.join()
             # self.pose_thread.join()
             self._show_posenet()
-            if len(self._get_poses()) > 0:
+            if len(self._get_state()) > 0:
                 # print(self._get_poses()[0])
                 pass
-
-
 
     def __exit__(self):
         self.screen_thread.join()
