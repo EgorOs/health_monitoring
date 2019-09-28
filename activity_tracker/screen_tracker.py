@@ -9,6 +9,8 @@ import posenet
 import threading
 from time import time
 import math
+from flask import Flask, render_template
+from flask_socketio import SocketIO, emit
 
 
 class PoseEstimation:
@@ -132,7 +134,7 @@ class PoseEstimation:
                 data = {
                 "state": state,
                  "image": overlay_image, 
-                 "frame_id": frame_count
+                 "frame_id": frame_count,
                  "time": time()
                  }
                 self.context[self.__class__.__name__] = data
@@ -181,12 +183,31 @@ class Application:
             return self.context["PoseEstimation"]["state"]
         return []
 
+    def data_server(self):
+        app = Flask(__name__)
+        app.config['SECRET_KEY'] = 'secret!'
+        app.debug = False
+        socketio = SocketIO(app)
+
+        @app.route('/')
+        def index():
+            return "Server is up!"
+
+        @socketio.on('request_data')
+        def test_message(message):
+            emit('data_response', self._get_state())
+
+        socketio.run(app)
+
     def run(self):
         self.screen_thread = threading.Thread(name='screen_thread',
                 target=self.screen_tracker.run)
         self.pose_thread = threading.Thread(name='pose_thread',
                 target=self.pose_tracker.run)
+        self.flask_thread = threading.Thread(name='flask_thread',
+                target=self.data_server)
         self.screen_thread.start()
+        self.flask_thread.start()
         self.pose_thread.start()
         while True:
             self._show_posenet()
@@ -198,6 +219,7 @@ class Application:
     def __exit__(self):
         self.screen_thread.join()
         self.pose_thread.join()
+        self.flask_thread.join()
 
 
 if __name__ == "__main__":
