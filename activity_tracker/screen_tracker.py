@@ -44,17 +44,14 @@ class PoseEstimation:
                     min_pose_score=0.15)
 
                 keypoint_coords *= output_scale
+                overlay_image = posenet.draw_skel_and_kp(
+                    display_image, pose_scores, keypoint_scores, keypoint_coords,
+                    min_pose_score=0.15, min_part_score=0.1)
 
-                # TODO this isn't particularly fast, use GL for drawing and display someday...
-                # overlay_image = posenet.draw_skel_and_kp(
-                #     display_image, pose_scores, keypoint_scores, keypoint_coords,
-                #     min_pose_score=0.15, min_part_score=0.1)
-
-                # cv2.imshow('posenet', overlay_image)
                 frame_count += 1
                 data = {
                 # "coords": keypoint_coords,
-                 # "image": input_image, 
+                 "image": overlay_image, 
                  "frame_id": frame_count}
                 self.context[self.__class__.__name__] = data
 
@@ -100,18 +97,19 @@ class Application:
         self.screen_thread.start()
         self.pose_thread.start()
         while True:
-            start_time = time()
-            while time() - start_time < 0.05:
                 # print(time() - start_time)
 
             # self.screen_thread.join()
             # self.pose_thread.join()
 
-                if self.context.get("PoseEstimation"):
-                    print(len(self.context["ScreenTracker"]), self.context["PoseEstimation"])
-                    # if self.context["PoseEstimation"].get("data"):
-                    #     cv2.imshow("1", self.context["PoseEstimation"].get("data")["image"])
-                    #     cv2.waitKey(10)
+            if self.context.get("PoseEstimation"):
+                # print(len(self.context["ScreenTracker"]), self.context["PoseEstimation"])
+                img = self.context["PoseEstimation"]["image"]
+                cv2.imshow('posenet', img)
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+                print(img.shape)
+
 
     def __exit__(self):
         self.screen_thread.join()
