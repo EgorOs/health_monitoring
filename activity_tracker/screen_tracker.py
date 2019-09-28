@@ -8,6 +8,8 @@ import tensorflow as tf
 import posenet
 import threading
 from time import time
+import math
+
 
 class PoseEstimation:
     MODEL = 101
@@ -41,6 +43,18 @@ class PoseEstimation:
         neck_offset = chest_center[1] - nose_pose[1]
         return neck_offset
 
+    @staticmethod
+    def _calculate_shoulder_skew(body_data):
+        chest_pts = body_data["body_parts"]["chest"]
+        chest_pts = sorted(chest_pts, key=lambda pt: pt[0], reverse=True)
+        max_x, sign_y_right = chest_pts[0]
+        min_x, sign_y_left = chest_pts[1]
+        chest_pts = sorted(chest_pts, key=lambda pt: pt[1], reverse=True)
+        max_y = chest_pts[0][1]
+        min_y = chest_pts[1][1]
+        skew = (sign_y_left - sign_y_right)/abs(sign_y_left - sign_y_right)*math.atan2((max_y - min_y),(max_x - min_x))*180/math.pi
+        return skew
+
     def analyze_pose(self, body_data):
         EYE_OPEN = 1
         EYE_CLOSED = 0
@@ -55,6 +69,7 @@ class PoseEstimation:
             "neck": NECK_UNDEFINED,
             "left_eye": EYE_OPEN,
             "right_eye": EYE_OPEN,
+            "shoulder_skew": 0,
         }
 
         if not self.initialized:
@@ -71,6 +86,10 @@ class PoseEstimation:
                 state["spine"] = SPINE_BAD
             else:
                 state["spine"] = SPINE_GOOD
+            if len(body_data["body_parts"]) > 0:
+                if body_data["body_parts"].get("chest").any():
+                    state["shoulder_skew"] = self._calculate_shoulder_skew(body_data)
+        print(state)
         return state
 
     def run(self):
@@ -109,12 +128,13 @@ class PoseEstimation:
                     self.user_initialization(body_data)
 
                 state = self.analyze_pose(body_data)
-                print(state)
                 frame_count += 1
                 data = {
                 "state": state,
                  "image": overlay_image, 
-                 "frame_id": frame_count}
+                 "frame_id": frame_count
+                 "time": time()
+                 }
                 self.context[self.__class__.__name__] = data
 
 
@@ -169,13 +189,10 @@ class Application:
         self.screen_thread.start()
         self.pose_thread.start()
         while True:
-                # print(time() - start_time)
-
-            # self.screen_thread.join()
-            # self.pose_thread.join()
             self._show_posenet()
-            if len(self._get_state()) > 0:
-                # print(self._get_poses()[0])
+            state = self._get_state()
+            if len(state) > 0:
+                print(state)
                 pass
 
     def __exit__(self):
