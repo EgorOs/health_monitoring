@@ -6,12 +6,14 @@ const jwt = require('jsonwebtoken');
 const mongoose = require('mongoose');
 const User = require('./models/User');
 const withAuth = require('./middleware');
+
 // const session=require('express-session');
 
 const app = express();
+const http = require('http').Server(app);
+const io = require('socket.io')(http);
 
 const secret = 'proryv';
-
 
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
@@ -29,6 +31,14 @@ mongoose.connect(mongo_uri, { useNewUrlParser: true }, function(err) {
 
 app.use(express.static(path.join(__dirname, 'public')));
 
+io.on('connection', socket => {
+  // console.log('Client connection received');
+  socket.emit('sendWarningToClient', {payload: 'causes'});
+  
+  socket.on('recievedSomething', (data) => {
+      console.log(data);
+  })
+});
 
 app.get('/', function (req, res) {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
@@ -39,7 +49,25 @@ app.get('/api/home', function(req, res) {
 });
 
 app.get('/api/secret', withAuth, function(req, res) {
-  res.send('Information from BE');
+  res.send('warning');
+  // io.on('noUser', socket => {
+  //   res.send('user dissapear');
+  //   socket.emit('sendNoUserMessage', {user: 'disabled'});
+    
+  //   socket.on('userComeBack', (data) => {
+  //       console.log(data);
+  //   });
+  // });
+
+  // io.on('niceHealth', socket => {
+  //   res.send('Great!');
+  //   socket.emit('sendHealthyMessage', {user: 'healthy'});
+    
+  //   socket.on('warning', (data) => {
+  //       console.log(data);
+  //   });
+  // });
+
 });
 
 app.post('/api/register', function(req, res) {
