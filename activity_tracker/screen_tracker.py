@@ -7,7 +7,7 @@ from pathlib import Path
 import tensorflow as tf
 import posenet
 import threading
-from time import time
+from time import time, sleep
 import math
 from flask import Flask, render_template
 from flask_socketio import SocketIO, emit
@@ -287,10 +287,10 @@ class Application:
 
         @app.route('/')
         def index():
-            return "Server is up!"
+            return render_template('index.html')
 
         @socketio.on('request_data')
-        def test_message(message):
+        def send_response(message):
             emit('data_response', self._get_state())
 
         socketio.run(app)
