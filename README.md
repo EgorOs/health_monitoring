@@ -13,8 +13,9 @@ Open in browser:
 localhost:5000
 ```
 
-# Stack of technologies
+# Technology Stack
 
+- Linux Ubuntu (Windows will be supported)
 - Python
 - OpenCV
 - JavaScript
