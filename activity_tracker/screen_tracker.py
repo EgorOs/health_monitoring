@@ -12,7 +12,14 @@ import math
 from flask import Flask, render_template
 from flask_socketio import SocketIO, emit
 import pandas as pd
+from Xlib import display
+from pynput.mouse import Button, Controller
+from pynput import mouse
 
+
+def get_mouse_pose_unix():
+    data = display.Display().screen().root.query_pointer()._data
+    return data["root_x"], data["root_y"]
 
 class PoseEstimation:
     MODEL = 101
@@ -166,14 +173,91 @@ class ScreenTracker:
                 # cv2.waitKey(10)
                 self.context[self.__class__.__name__].append(2)
 
+class ActionsPerMinute:
+    def __init__(self, context, file):
+        self.context = context
+        self.mouse = Controller()
+        self.actions = 0
+        self.init_time = time()
+        self.apmfile = file
+
+    def _write(self, apm):
+        df = pd.DataFrame(data=apm, index=[time()], columns=["actions"])
+        if not os.path.exists(self.apmfile):
+            df.to_csv(self.apmfile, mode='a', header=True)
+        else:
+            df.to_csv(self.apmfile, mode='a', header=False)
+
+    def reset_by_time(self):
+        if time() - self.init_time > 60:
+            apm = {"actions": self.actions}
+            self._write(apm)
+            self.context[self.__class__.__name__] = apm
+            self.actions = 0
+            self.init_time = time()
+
+    def on_click(self, x, y, button, pressed):
+        self.actions += 1
+        self.reset_by_time()
+
+    def on_scroll(self, x, y, dx, dy):
+        self.actions += 1
+        self.reset_by_time()
+
+    def run(self):
+        # ...or, in a non-blocking fashion:
+        listener = mouse.Listener(
+            on_click=self.on_click,
+            on_scroll=self.on_scroll)
+        listener.start()
+
+
+class MouseTracker:
+    def __init__(self, context):
+        self.context = context
+        self.prev_pose = None
+    
+    def run(self):
+        while True:
+            if not self.prev_pose:
+                self.prev_pose = get_mouse_pose_unix()
+                continue
+
+            pose = get_mouse_pose_unix()
+            timestamp = time()
+            diff_x = pose[0] - self.prev_pose[0]
+            diff_y = pose[1] - self.prev_pose[1]
+            # print(pose, self.prev_pose, diff_x, diff_y)
+            self.prev_pose = pose
+            self.context[self.__class__.__name__] = {
+                "time": timestamp,
+                "speed_x": diff_x,
+                "speed_y": diff_y
+            }
+            # self.buffer.append((m_x, m_y))
+            # if time() - start_time > 1:
+            #     avg_x_speed = 0
+            #     avg_y_speed = 0
+            #     for 
+
+            #     self.buffer = []
+            #     start_time = time()
+
+
 class Application:
     def __init__(self):
+
+        self.datapath = Path("data")
+        os.makedirs(self.datapath, exist_ok=True)
+        self.posefile = self.datapath/"pose.csv"
+        self.mousefile = self.datapath/"mouse.csv"
+        self.apmfile = self.datapath/"actions_per_minute.csv"
+
         self.context = dict()
         self.screen_tracker = ScreenTracker(self.context)
         self.pose_tracker = PoseEstimation(self.context)
-        self.datapath = Path("data")
-        os.makedirs(self.datapath, exist_ok=True)
-        self.posedata = self.datapath/"pose.csv"
+        self.mouse_tracker = MouseTracker(self.context)
+        self.apm_tracker = ActionsPerMinute(self.context, self.apmfile)
 
     def _show_posenet(self):
         if self.context.get("PoseEstimation"):
@@ -184,6 +268,11 @@ class Application:
     def _get_state(self):
         if self.context.get("PoseEstimation"):
             return self.context["PoseEstimation"]["state"]
+        return []
+
+    def _get_mouse(self):
+        if self.context.get("MouseTracker"):
+            return self.context["MouseTracker"]
         return []
 
     def _get_time(self):
@@ -211,11 +300,17 @@ class Application:
                 target=self.screen_tracker.run)
         self.pose_thread = threading.Thread(name='pose_thread',
                 target=self.pose_tracker.run)
+        self.mouse_thread = threading.Thread(name='mouse_thread',
+                target=self.mouse_tracker.run)
         self.flask_thread = threading.Thread(name='flask_thread',
                 target=self.data_server)
+        self.apm_thread = threading.Thread(name='apm_thread',
+                target=self.apm_tracker.run)
         self.screen_thread.start()
+        self.mouse_thread.start()
         self.flask_thread.start()
         self.pose_thread.start()
+        self.apm_thread.start()
         prev_timestamp = -1
         while True:
             self._show_posenet()
@@ -225,17 +320,27 @@ class Application:
                 if timestamp != prev_timestamp:
                     state["time"] = timestamp
                     df = pd.DataFrame(data=state, index=[timestamp], columns=["spine", "neck", "left_eye", "right_eye", "shoulder_skew"])
-                    print(df)
-                    if not os.path.exists(self.posedata):
-                        df.to_csv(self.posedata, mode='a', header=True)
+                    if not os.path.exists(self.posefile):
+                        df.to_csv(self.posefile, mode='a', header=True)
                     else:
-                        df.to_csv(self.posedata, mode='a', header=False)
+                        df.to_csv(self.posefile, mode='a', header=False)
                     prev_timestamp = timestamp
+
+            mouse_data = self._get_mouse()
+            if len(mouse_data) > 0:
+                df = pd.DataFrame(data=mouse_data, index=[mouse_data["time"]], columns=["speed_x", "speed_y"])
+                if not os.path.exists(self.mousefile):
+                    df.to_csv(self.mousefile, mode='a', header=True)
+                else:
+                    df.to_csv(self.mousefile, mode='a', header=False)
+
 
     def __exit__(self):
         self.screen_thread.join()
         self.pose_thread.join()
+        self.mouse_thread.join()
         self.flask_thread.join()
+        self.apm_thread.join()
 
 
 if __name__ == "__main__":
