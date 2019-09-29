@@ -16,7 +16,9 @@ from Xlib import display
 from pynput.mouse import Button, Controller
 from pynput import mouse
 import imutils
+from imutils import face_utils
 import dlib
+from scipy.spatial import distance as dist
 
 
 def eye_aspect_ratio(eye):
@@ -44,7 +46,12 @@ def get_mouse_pose_unix():
 class PoseEstimation:
     MODEL = 101
     SCALE_FACTOR = 0.7125
-    def __init__(self, context, camera=(640, 360)):    
+    EYE_AR_THRESH = 0.3
+    EYE_AR_CONSEC_FRAMES = 3
+    COUNTER = 0
+    TOTAL_BLINKS = 0
+
+    def __init__(self, context, camera=(640, 360)):   
         self.context = context
         self.camera = camera
         self.user_init_iterations_left = 5
@@ -54,6 +61,12 @@ class PoseEstimation:
         self.normal_spine_offset = None
         self.normal_neck_offset = None
         self.detector = dlib.get_frontal_face_detector()
+        self.predictor = dlib.shape_predictor("face_analysis/shape_predictor_68_face_landmarks.dat")
+
+        self.lStart, self.lEnd = face_utils.FACIAL_LANDMARKS_IDXS["left_eye"]
+        self.rStart, self.rEnd = face_utils.FACIAL_LANDMARKS_IDXS["right_eye"]
+
+
 
     def user_initialization(self, body_data):
         if len(body_data["center"]) > 0:
@@ -85,6 +98,51 @@ class PoseEstimation:
         min_y = chest_pts[1][1]
         skew = (sign_y_left - sign_y_right)/abs(sign_y_left - sign_y_right)*math.atan2((max_y - min_y),(max_x - min_x))*180/math.pi
         return skew
+
+    def get_eye_state(self, frame): 
+        frame = imutils.resize(frame, width=450)
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+        rects = self.detector(gray, 0)
+        for rect in rects:
+            # determine the facial landmarks for the face region, then
+            # convert the facial landmark (x, y)-coordinates to a NumPy
+            # array
+            shape = self.predictor(gray, rect)
+            shape = face_utils.shape_to_np(shape)
+
+            # extract the left and right eye coordinates, then use the
+            # coordinates to compute the eye aspect ratio for both eyes
+            leftEye = shape[self.lStart:self.lEnd]
+            rightEye = shape[self.rStart:self.rEnd]
+            leftEAR = eye_aspect_ratio(leftEye)
+            rightEAR = eye_aspect_ratio(rightEye)
+
+            # average the eye aspect ratio together for both eyes
+            ear = (leftEAR + rightEAR) / 2.0
+
+            # compute the convex hull for the left and right eye, then
+            # visualize each of the eyes
+            leftEyeHull = cv2.convexHull(leftEye)
+            rightEyeHull = cv2.convexHull(rightEye)
+            cv2.drawContours(frame, [leftEyeHull], -1, (0, 255, 0), 1)
+            cv2.drawContours(frame, [rightEyeHull], -1, (0, 255, 0), 1)
+
+            # check to see if the eye aspect ratio is below the blink
+            # threshold, and if so, increment the blink frame counter
+            if ear < self.EYE_AR_THRESH:
+                self.COUNTER += 1
+
+            # otherwise, the eye aspect ratio is not below the blink
+            # threshold
+            else:
+                # if the eyes were closed for a sufficient number of
+                # then increment the total_BLINKS number of blinks
+                if self.COUNTER >= self.EYE_AR_CONSEC_FRAMES:
+                    self.TOTAL_BLINKS += 1
+
+                # reset the eye frame counter
+                self.COUNTER = 0
 
     def analyze_pose(self, body_data):
         EYE_OPEN = 1
@@ -122,6 +180,7 @@ class PoseEstimation:
             if len(body_data["body_parts"]) > 0:
                 if body_data["body_parts"].get("chest").any():
                     state["shoulder_skew"] = self._calculate_shoulder_skew(body_data)
+            state["blinks"] = self.TOTAL_BLINKS
         return state
 
     def run(self):
@@ -170,6 +229,7 @@ class PoseEstimation:
                  "frame_id": frame_count,
                  "time": time()
                  }
+                self.get_eye_state(display_image)
                 self.context[self.__class__.__name__] = data
 
 
@@ -344,7 +404,7 @@ class Application:
                 timestamp = self._get_time()
                 if timestamp != prev_timestamp:
                     state["time"] = timestamp
-                    df = pd.DataFrame(data=state, index=[timestamp], columns=["spine", "neck", "left_eye", "right_eye", "shoulder_skew"])
+                    df = pd.DataFrame(data=state, index=[timestamp], columns=["spine", "neck", "left_eye", "right_eye", "shoulder_skew", "blinks"])
                     if not os.path.exists(self.posefile):
                         df.to_csv(self.posefile, mode='a', header=True)
                     else:

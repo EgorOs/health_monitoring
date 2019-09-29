@@ -45,6 +45,9 @@ function draw() {
     fill(0,0,0);
     text("Наклон плеч (в градусах): " + body_state.shoulder_skew  , 10, 110);
 
+    fill(0,0,0);
+    text("Число морганий: " + body_state.blinks  , 10, 130);
+
     text("Скорость мыши, ось X: " + mouse_speed.speed_x, 10, 190);
     text("Скорость мыши, ось Y: " + mouse_speed.speed_y, 10, 230);
 
