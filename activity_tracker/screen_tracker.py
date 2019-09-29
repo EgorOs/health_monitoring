@@ -24,7 +24,7 @@ def get_mouse_pose_unix():
 class PoseEstimation:
     MODEL = 101
     SCALE_FACTOR = 0.7125
-    def __init__(self, context, camera=(1366, 768)):    
+    def __init__(self, context, camera=(640, 360)):    
         self.context = context
         self.camera = camera
         self.user_init_iterations_left = 5
@@ -87,12 +87,14 @@ class PoseEstimation:
         
         if len(body_data["center"]) > 0:
             neck_offset = self._get_neck_offset(body_data)
-            if neck_offset < self.normal_neck_offset*0.8:
+            # if neck_offset < self.normal_neck_offset*0.8:
+            if neck_offset < self.normal_neck_offset*0.9:
                 state["neck"] = NECK_BAD
             else:
                 state["neck"] = NECK_GOOD
             spine_offset = body_data["center"][1]
-            if spine_offset > self.normal_spine_offset*1.1:
+            # if spine_offset > self.normal_spine_offset*1.1:
+            if spine_offset > self.normal_spine_offset*1.05:
                 state["spine"] = SPINE_BAD
             else:
                 state["spine"] = SPINE_GOOD
@@ -108,9 +110,12 @@ class PoseEstimation:
             cap = cv2.VideoCapture(0)
             cap.set(3, self.camera[0])
             cap.set(4, self.camera[1])
-            # start = time.time()
             frame_count = 0
             while True:
+                if self.initialized:
+                    if frame_count % 2 == 0:
+                        frame_count += 1
+                        continue
                 input_image, display_image, output_scale = posenet.read_cap(
                     cap, scale_factor=self.SCALE_FACTOR, output_stride=self.output_stride, )
 
@@ -180,6 +185,7 @@ class ActionsPerMinute:
         self.actions = 0
         self.init_time = time()
         self.apmfile = file
+        self.context[self.__class__.__name__] = {"actions": 0}
 
     def _write(self, apm):
         df = pd.DataFrame(data=apm, index=[time()], columns=["actions"])
@@ -227,21 +233,12 @@ class MouseTracker:
             timestamp = time()
             diff_x = pose[0] - self.prev_pose[0]
             diff_y = pose[1] - self.prev_pose[1]
-            # print(pose, self.prev_pose, diff_x, diff_y)
             self.prev_pose = pose
             self.context[self.__class__.__name__] = {
                 "time": timestamp,
                 "speed_x": diff_x,
                 "speed_y": diff_y
             }
-            # self.buffer.append((m_x, m_y))
-            # if time() - start_time > 1:
-            #     avg_x_speed = 0
-            #     avg_y_speed = 0
-            #     for 
-
-            #     self.buffer = []
-            #     start_time = time()
 
 
 class Application:
@@ -291,7 +288,12 @@ class Application:
 
         @socketio.on('request_data')
         def send_response(message):
-            emit('data_response', self._get_state())
+            message = {
+                "PoseEstimation": self._get_state(),
+                "MouseTracker": self.context["MouseTracker"],
+                "ActionsPerMinute": self.context["ActionsPerMinute"]
+            }
+            emit('data_response', message)
 
         socketio.run(app)
 
