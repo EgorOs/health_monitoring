@@ -12,3 +12,9 @@ Open in browser:
 ```
 localhost:5000
 ```
+
+# Stack of technologies
+
+- Python
+- OpenCV
+- JavaScript
