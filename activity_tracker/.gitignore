@@ -2,3 +2,5 @@ venv
 _models
 pose_net.py
 posenet/__pycache__/
+posenet/converter/__pycache__
+data

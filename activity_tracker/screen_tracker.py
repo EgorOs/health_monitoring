@@ -11,6 +11,7 @@ from time import time
 import math
 from flask import Flask, render_template
 from flask_socketio import SocketIO, emit
+import pandas as pd
 
 
 class PoseEstimation:
@@ -91,7 +92,6 @@ class PoseEstimation:
             if len(body_data["body_parts"]) > 0:
                 if body_data["body_parts"].get("chest").any():
                     state["shoulder_skew"] = self._calculate_shoulder_skew(body_data)
-        print(state)
         return state
 
     def run(self):
@@ -171,6 +171,9 @@ class Application:
         self.context = dict()
         self.screen_tracker = ScreenTracker(self.context)
         self.pose_tracker = PoseEstimation(self.context)
+        self.datapath = Path("data")
+        os.makedirs(self.datapath, exist_ok=True)
+        self.posedata = self.datapath/"pose.csv"
 
     def _show_posenet(self):
         if self.context.get("PoseEstimation"):
@@ -182,6 +185,10 @@ class Application:
         if self.context.get("PoseEstimation"):
             return self.context["PoseEstimation"]["state"]
         return []
+
+    def _get_time(self):
+        if self.context.get("PoseEstimation"):
+            return self.context["PoseEstimation"]["time"]
 
     def data_server(self):
         app = Flask(__name__)
@@ -209,12 +216,21 @@ class Application:
         self.screen_thread.start()
         self.flask_thread.start()
         self.pose_thread.start()
+        prev_timestamp = -1
         while True:
             self._show_posenet()
             state = self._get_state()
             if len(state) > 0:
-                print(state)
-                pass
+                timestamp = self._get_time()
+                if timestamp != prev_timestamp:
+                    state["time"] = timestamp
+                    df = pd.DataFrame(data=state, index=[timestamp], columns=["spine", "neck", "left_eye", "right_eye", "shoulder_skew"])
+                    print(df)
+                    if not os.path.exists(self.posedata):
+                        df.to_csv(self.posedata, mode='a', header=True)
+                    else:
+                        df.to_csv(self.posedata, mode='a', header=False)
+                    prev_timestamp = timestamp
 
     def __exit__(self):
         self.screen_thread.join()
