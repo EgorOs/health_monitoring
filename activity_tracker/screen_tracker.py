@@ -237,7 +237,9 @@ class MouseTracker:
             self.context[self.__class__.__name__] = {
                 "time": timestamp,
                 "speed_x": diff_x,
-                "speed_y": diff_y
+                "speed_y": diff_y,
+                "pose_x": pose[0],
+                "pose_y": pose[1]
             }
 
 
@@ -330,7 +332,7 @@ class Application:
 
             mouse_data = self._get_mouse()
             if len(mouse_data) > 0:
-                df = pd.DataFrame(data=mouse_data, index=[mouse_data["time"]], columns=["speed_x", "speed_y"])
+                df = pd.DataFrame(data=mouse_data, index=[mouse_data["time"]], columns=["speed_x", "speed_y","pose_x", "pose_y"])
                 if not os.path.exists(self.mousefile):
                     df.to_csv(self.mousefile, mode='a', header=True)
                 else:
